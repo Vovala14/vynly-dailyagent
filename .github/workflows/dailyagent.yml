@@ -1,0 +1,23 @@
+name: dailyagent
+
+on:
+  schedule:
+    - cron: "0 14 * * *" # daily 14:00 UTC
+  workflow_dispatch: {} # manual "Run workflow" button
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install deps
+        run: npm install
+      - name: Run @dailyagent (generate MCP -> publish MCP)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          VYNLY_TOKEN: ${{ secrets.VYNLY_TOKEN }}
+        run: node dailyagent.mjs

@@ -1,0 +1,15 @@
+{
+  "name": "vynly-agent-sdk-mcp-demo",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Headless Claude agent that chains an image-generation MCP into @vynly/mcp to auto-post AI art to vynly.co.",
+  "scripts": {
+    "post": "node post-bot.mjs",
+    "dailyagent": "node dailyagent.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.1.0",
+    "@modelcontextprotocol/sdk": "^1.0.4"
+  }
+}
