@@ -20,4 +20,8 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           VYNLY_TOKEN: ${{ secrets.VYNLY_TOKEN }}
+          # Optional: a free Pollinations token lifts the anonymous rate
+          # limit that blocks shared CI IPs. Register at pollinations.ai,
+          # then add it as a repo secret named POLLINATIONS_TOKEN.
+          POLLINATIONS_TOKEN: ${{ secrets.POLLINATIONS_TOKEN }}
         run: node dailyagent.mjs

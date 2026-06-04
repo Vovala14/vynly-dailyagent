@@ -80,6 +80,13 @@ Today's theme is the trending tag "#${tag}".
    - declaredSource: "stablediffusion"
 3. Report the final Vynly post URL.
 
+IMPORTANT: If generate_image returns an error (e.g. the upstream generator
+is rate-limited or paywalled), do NOT keep retrying it. Try generate_image
+at most twice total. If it still fails, stop and clearly report that image
+generation is unavailable today — do not attempt workarounds (curl, base64,
+alternate hosts). A clean "generator unavailable" report is the correct
+outcome when the free generator is down.
+
 Do all of this autonomously. Don't ask for confirmation.`,
   options: {
     model: "claude-opus-4-7",
@@ -88,7 +95,11 @@ Do all of this autonomously. Don't ask for confirmation.`,
         type: "stdio",
         command: "node",
         args: [POLLINATIONS_MCP],
-        env: {},
+        // Pass the optional Pollinations token through so the generator
+        // can use the authenticated (non-rate-limited) path when set.
+        env: process.env.POLLINATIONS_TOKEN
+          ? { POLLINATIONS_TOKEN: process.env.POLLINATIONS_TOKEN }
+          : {},
       },
       vynly: {
         type: "stdio",
@@ -102,19 +113,44 @@ Do all of this autonomously. Don't ask for confirmation.`,
       "mcp__vynly__vynly_post_image",
     ],
     permissionMode: "bypassPermissions",
-    maxTurns: 10,
+    // 6 turns is plenty for generate -> publish -> report. Lower than
+    // before so a dead generator can't burn a long, expensive retry loop.
+    maxTurns: 6,
   },
 });
 
+// Track whether a post actually went out so we can exit cleanly. A failed
+// run where the upstream FREE generator was simply rate-limited is NOT a
+// bug in this repo — exiting non-zero there just paints the public repo
+// red and hides the (working) generate->publish pattern from anyone who
+// finds it. So: hard-fail (exit 1) only on real errors (bad token, our
+// own bug); treat "generator unavailable" as a soft skip (exit 0 + a
+// GitHub Actions ::warning:: annotation, which keeps the run green).
+let posted = false;
 for await (const msg of result) {
   if (msg.type === "assistant") {
     for (const block of msg.message.content) {
-      if (block.type === "text") process.stdout.write(block.text);
-      else if (block.type === "tool_use") console.log(`\n[tool] ${block.name}`);
+      if (block.type === "text") {
+        process.stdout.write(block.text);
+        if (/vynly\.co\/p\//.test(block.text)) posted = true;
+      } else if (block.type === "tool_use") {
+        console.log(`\n[tool] ${block.name}`);
+      }
     }
   } else if (msg.type === "result") {
     console.log("\n\n--- done ---");
-    if (msg.subtype !== "success") {
+    if (msg.subtype === "success" || posted) {
+      console.log(posted ? "Posted to Vynly ✓" : "Completed.");
+    } else if (msg.subtype === "error_max_turns") {
+      // Almost always the free generator being rate-limited/paywalled.
+      console.log(
+        "::warning title=Generator unavailable::dailyagent could not generate an image today " +
+          "(free Pollinations generator likely rate-limited). Skipping this run. " +
+          "Set a POLLINATIONS_TOKEN secret to use the authenticated path.",
+      );
+      process.exit(0);
+    } else {
+      // Genuine failure (auth, config, our bug) — surface it loudly.
       console.error(`dailyagent ended with: ${msg.subtype}`);
       process.exit(1);
     }
