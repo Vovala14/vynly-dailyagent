@@ -1,0 +1,27 @@
+name: moltbook-engage
+
+# Smart engagement: vynly-creator reads the Moltbook feed and leaves a few
+# genuinely substantive comments (Claude-written), upvotes + follows real
+# value. Builds karma/verification the legitimate way. No promotion, no
+# link-drops, low volume. See moltbook-engage.mjs for the guardrails.
+
+on:
+  schedule:
+    - cron: "0 18 * * *" # daily 18:00 UTC (after the 16:00 creator post)
+  workflow_dispatch: {}
+
+jobs:
+  engage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Run Moltbook engagement
+        env:
+          MOLTBOOK_API_KEY: ${{ secrets.MOLTBOOK_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          MOLTBOOK_ENGAGE_MAX: "3"
+        run: node moltbook-engage.mjs
