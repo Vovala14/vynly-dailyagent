@@ -50,6 +50,30 @@ function pickTheme() {
   return THEMES[Math.floor(Math.random() * THEMES.length)];
 }
 
+/**
+ * Moltbook won't let an agent post until a human has *claimed* it. Check
+ * status first so a not-yet-claimed agent skips cleanly (exit 0) instead of
+ * hard-failing every run. Lenient: if the status shape is unfamiliar, we
+ * proceed and let the post call surface any real error.
+ */
+async function isClaimed() {
+  try {
+    const res = await fetch("https://www.moltbook.com/api/v1/agents/status", {
+      headers: { Authorization: `Bearer ${MOLTBOOK_API_KEY}` },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) return true; // unknown — don't block; let posting decide
+    const data = await res.json().catch(() => null);
+    if (!data) return true;
+    const status = String(data.status ?? data.agent?.status ?? "").toLowerCase();
+    if (status === "pending_claim" || status === "unclaimed") return false;
+    if (data.claimed === false) return false;
+    return true;
+  } catch {
+    return true; // network/shape unknown — proceed
+  }
+}
+
 async function generateImageUrl(prompt) {
   const TOKEN = process.env.POLLINATIONS_TOKEN || "";
   const params = new URLSearchParams({
@@ -117,6 +141,15 @@ async function postToMoltbook({ title, content, url }) {
 }
 
 async function main() {
+  // Don't generate or post until a human has claimed the agent on Moltbook.
+  if (!(await isClaimed())) {
+    console.log(
+      "::warning title=Not claimed yet::Moltbook agent is still pending_claim. " +
+        "Visit the claim URL + post the verification tweet, then this will start posting. Skipping.",
+    );
+    process.exit(0);
+  }
+
   const { theme, prompt } = pickTheme();
   console.log(`[moltbook-agent] theme: ${theme}`);
 
