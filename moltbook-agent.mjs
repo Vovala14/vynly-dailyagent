@@ -74,35 +74,56 @@ async function isClaimed() {
   }
 }
 
-async function generateImageUrl(prompt) {
-  const TOKEN = process.env.POLLINATIONS_TOKEN || "";
+// Pollinations rebuilt its API: new base is https://gen.pollinations.ai and
+// it requires an sk_ key via Bearer. We fetch the BYTES with the key in the
+// header (never in a URL) so the key can't leak into a public post or a log.
+const POLLINATIONS_KEY =
+  process.env.POLLINATIONS_API_KEY || process.env.POLLINATIONS_TOKEN || "";
+
+async function generateImageBytes(prompt) {
+  if (!POLLINATIONS_KEY) {
+    throw new Error("POLLINATIONS_API_KEY not set");
+  }
   const params = new URLSearchParams({
     model: "flux",
     width: "1024",
     height: "1024",
-    nologo: "true",
-    enhance: "true",
     seed: String(Math.floor(Math.random() * 1_000_000_000)),
   });
-  if (TOKEN) params.set("token", TOKEN);
-  const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?${params}`;
-  const headers = { "User-Agent": "vynly-moltbook-agent/1.0" };
-  if (TOKEN) headers.Authorization = `Bearer ${TOKEN}`;
-  const res = await fetch(url, { headers, signal: AbortSignal.timeout(90_000) });
+  const url = `https://gen.pollinations.ai/image/${encodeURIComponent(prompt)}?${params}`;
+  const res = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${POLLINATIONS_KEY}`,
+      "User-Agent": "vynly-moltbook-agent/1.0",
+    },
+    signal: AbortSignal.timeout(120_000),
+  });
   const ctype = res.headers.get("content-type") || "";
   if (!res.ok || !ctype.startsWith("image/")) {
-    throw new Error(
-      `generator unavailable (HTTP ${res.status}, "${ctype}")${TOKEN ? "" : " — set POLLINATIONS_TOKEN"}`,
-    );
+    const body = await res.text().catch(() => "");
+    throw new Error(`generator failed: HTTP ${res.status} "${ctype}" ${body.slice(0, 160)}`);
   }
-  return url;
+  const bytes = Buffer.from(await res.arrayBuffer());
+  return { bytes, contentType: ctype };
 }
 
-async function postToVynly(imageUrl, caption) {
-  const res = await fetch("https://vynly.co/api/posts/from-url", {
+// Upload the bytes to Vynly via multipart (so the source URL — and the
+// Pollinations key — never travel to Vynly). Vynly re-hosts the image on its
+// own Blob storage and returns the post, including the public imageUrl.
+async function postToVynly(bytes, contentType, caption) {
+  const ext = contentType.includes("png")
+    ? "png"
+    : contentType.includes("webp")
+      ? "webp"
+      : "jpg";
+  const fd = new FormData();
+  fd.append("image", new Blob([bytes], { type: contentType }), `art.${ext}`);
+  fd.append("caption", caption);
+  fd.append("declaredSource", "flux");
+  const res = await fetch("https://vynly.co/api/posts", {
     method: "POST",
-    headers: { Authorization: `Bearer ${VYNLY_TOKEN}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ imageUrl, caption, declaredSource: "flux" }),
+    headers: { Authorization: `Bearer ${VYNLY_TOKEN}` },
+    body: fd,
   });
   const text = await res.text();
   if (!res.ok) throw new Error(`Vynly post failed: HTTP ${res.status} ${text.slice(0, 200)}`);
@@ -153,26 +174,28 @@ async function main() {
   const { theme, prompt } = pickTheme();
   console.log(`[moltbook-agent] theme: ${theme}`);
 
-  let imageUrl;
+  let img;
   try {
-    imageUrl = await generateImageUrl(prompt);
+    img = await generateImageBytes(prompt);
   } catch (e) {
-    // Generator down (usually the free Pollinations rate limit). Skip the
-    // day rather than fail loudly — nothing to post is fine.
+    // Generator unavailable. Skip the day rather than fail loudly.
     console.log(`::warning title=Generator unavailable::${e.message}. Skipping this run.`);
     process.exit(0);
   }
 
   const caption = `${theme} #aiart`;
-  const vynly = await postToVynly(imageUrl, caption);
-  console.log("Posted to Vynly:", vynly.url);
+  const vynly = await postToVynly(img.bytes, img.contentType, caption);
+  const vynlyPostUrl = `https://vynly.co/p/${vynly.id}`;
+  console.log("Posted to Vynly:", vynlyPostUrl);
 
   await setMoltbookBio();
 
+  // Moltbook gets Vynly's re-hosted public image URL (no Pollinations key in
+  // it), with the Vynly post link in the body for attribution.
   const mb = await postToMoltbook({
     title: caption,
-    content: `AI-generated (Flux). Verified AI provenance on Vynly: ${vynly.url}`,
-    url: imageUrl,
+    content: `AI-generated (Flux). Verified AI provenance on Vynly: ${vynlyPostUrl}`,
+    url: vynly.imageUrl,
   });
   console.log("Posted to Moltbook:", mb.id ?? mb.post?.id ?? JSON.stringify(mb).slice(0, 120));
   console.log("--- done ---");

@@ -22,6 +22,17 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
+import { writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+// Pollinations rebuilt its API: base is now https://gen.pollinations.ai and
+// it requires an sk_ key. We fetch the BYTES with the key in the header and
+// write them to a local temp file, returning the PATH (not a URL). The
+// publisher reads the file via its imagePath field — so the key never ends
+// up in a URL, a tool result sent to the model, or a CI log.
+const POLLINATIONS_KEY =
+  process.env.POLLINATIONS_API_KEY || process.env.POLLINATIONS_TOKEN || "";
 
 const server = new Server(
   { name: "pollinations-mcp", version: "1.0.0" },
@@ -33,7 +44,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "generate_image",
       description:
-        "Generate an image from a text prompt using Pollinations.ai (free, no API key). Returns a public HTTPS URL of the generated image, which you can pass directly to a publishing tool's imageUrl field. The image is Flux-Schnell by default.",
+        "Generate an image from a text prompt using Pollinations.ai (Flux). Returns a local file PATH to the generated image; pass that path to a publishing tool's imagePath field. Requires POLLINATIONS_API_KEY in the environment.",
       inputSchema: {
         type: "object",
         additionalProperties: false,
@@ -83,36 +94,40 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
   const width = Number.isInteger(a.width) ? a.width : 1024;
   const height = Number.isInteger(a.height) ? a.height : 1024;
 
-  // Pollinations now gates anonymous traffic (shared/cloud IPs like
-  // GitHub Actions often get 402/429). A free registered token lifts
-  // that. Set POLLINATIONS_TOKEN to use it; without one we still try
-  // the anonymous path (works from residential IPs / low volume).
-  const TOKEN = process.env.POLLINATIONS_TOKEN || "";
+  if (!POLLINATIONS_KEY) {
+    return {
+      content: [
+        {
+          type: "text",
+          text:
+            "POLLINATIONS_API_KEY is not set. Get a key at enter.pollinations.ai and set it in the environment. " +
+            "Do NOT retry; report this and stop.",
+        },
+      ],
+      isError: true,
+    };
+  }
+
   const params = new URLSearchParams({
     model: "flux",
     width: String(width),
     height: String(height),
-    nologo: "true",
-    enhance: "true",
     seed: String(Math.floor(Math.random() * 1_000_000_000)),
   });
-  if (TOKEN) params.set("token", TOKEN);
-  const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?${params}`;
+  // Key goes in the Authorization header, never in the URL.
+  const url = `https://gen.pollinations.ai/image/${encodeURIComponent(prompt)}?${params}`;
 
-  // Pre-warm AND validate: hit the URL once so the image is generated +
-  // cached before the publisher fetches it, and confirm we actually got
-  // image bytes. If Pollinations returns a paywall/queue/JSON error,
-  // surface it as a tool error so the agent stops immediately instead of
-  // handing a dead URL to the publisher and thrashing through retries.
+  let buf, ctype;
   try {
-    const headers = { "User-Agent": "pollinations-mcp/1.0" };
-    if (TOKEN) headers.Authorization = `Bearer ${TOKEN}`;
     const res = await fetch(url, {
       method: "GET",
-      headers,
-      signal: AbortSignal.timeout(90_000),
+      headers: {
+        Authorization: `Bearer ${POLLINATIONS_KEY}`,
+        "User-Agent": "pollinations-mcp/2.0",
+      },
+      signal: AbortSignal.timeout(120_000),
     });
-    const ctype = res.headers.get("content-type") || "";
+    ctype = res.headers.get("content-type") || "";
     if (!res.ok || !ctype.startsWith("image/")) {
       const body = await res.text().catch(() => "");
       return {
@@ -120,22 +135,21 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
           {
             type: "text",
             text:
-              `Image generation unavailable (HTTP ${res.status}, content-type "${ctype}"). ` +
-              `Pollinations is gating this request${TOKEN ? "" : " — no POLLINATIONS_TOKEN is set"}. ` +
-              `Do NOT retry generation; report that the upstream generator is rate-limited and stop. ` +
-              `Response: ${body.slice(0, 200)}`,
+              `Image generation failed (HTTP ${res.status}, content-type "${ctype}"). ` +
+              `Do NOT retry generation; report the failure and stop. Response: ${body.slice(0, 200)}`,
           },
         ],
         isError: true,
       };
     }
+    buf = Buffer.from(await res.arrayBuffer());
   } catch (e) {
     return {
       content: [
         {
           type: "text",
           text:
-            `Image generation request failed: ${e.message}. The upstream generator (Pollinations) ` +
+            `Image generation request failed: ${e.message}. The generator (Pollinations) ` +
             `is unreachable or timed out. Do NOT retry; report the failure and stop.`,
         },
       ],
@@ -143,14 +157,20 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
     };
   }
 
+  // Write to a local temp file and return its PATH (keeps the key out of any
+  // URL / tool result / log; the publisher reads it via imagePath).
+  const ext = ctype.includes("png") ? "png" : ctype.includes("webp") ? "webp" : "jpg";
+  const filePath = join(tmpdir(), `pollinations-${Date.now()}-${Math.floor(Math.random() * 1e6)}.${ext}`);
+  await writeFile(filePath, buf);
+
   return {
     content: [
       {
         type: "text",
         text: JSON.stringify({
-          imageUrl: url,
-          generator: "stablediffusion",
-          note: "Pollinations.ai Flux-Schnell. Pass imageUrl to the publish tool; set declaredSource to 'stablediffusion'.",
+          imagePath: filePath,
+          generator: "flux",
+          note: "Flux via Pollinations. Pass imagePath to the publish tool's imagePath field; set declaredSource to 'flux'.",
         }),
       },
     ],
@@ -160,5 +180,5 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
 const transport = new StdioServerTransport();
 await server.connect(transport);
 process.stderr.write(
-  `pollinations-mcp connected (${process.env.POLLINATIONS_TOKEN ? "token auth" : "anonymous"})\n`,
+  `pollinations-mcp connected (${POLLINATIONS_KEY ? "key set" : "NO KEY — set POLLINATIONS_API_KEY"})\n`,
 );

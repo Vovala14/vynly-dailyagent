@@ -74,10 +74,10 @@ Today's theme is the trending tag "#${tag}".
 
 1. Use the generate_image tool to create one striking image inspired by
    "#${tag}". Write a vivid, specific prompt (subject, style, lighting, mood).
-2. Take the imageUrl it returns and publish it with vynly_post_image:
-   - imageUrl: the URL from step 1
+2. Take the imagePath it returns and publish it with vynly_post_image:
+   - imagePath: the local path from step 1
    - caption: a short, punchy caption ending with "#${tag} #aiart #daily"
-   - declaredSource: "stablediffusion"
+   - declaredSource: "flux"
 3. Report the final Vynly post URL.
 
 IMPORTANT: If generate_image returns an error (e.g. the upstream generator
@@ -95,10 +95,9 @@ Do all of this autonomously. Don't ask for confirmation.`,
         type: "stdio",
         command: "node",
         args: [POLLINATIONS_MCP],
-        // Pass the optional Pollinations token through so the generator
-        // can use the authenticated (non-rate-limited) path when set.
-        env: process.env.POLLINATIONS_TOKEN
-          ? { POLLINATIONS_TOKEN: process.env.POLLINATIONS_TOKEN }
+        // Pass the Pollinations API key through to the generator MCP.
+        env: process.env.POLLINATIONS_API_KEY
+          ? { POLLINATIONS_API_KEY: process.env.POLLINATIONS_API_KEY }
           : {},
       },
       vynly: {
