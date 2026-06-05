@@ -1,0 +1,34 @@
+name: moltbook-creator
+
+# Vynly creator-agent on Moltbook: once a day, generate art -> publish to
+# Vynly -> share that post on Moltbook as a genuine creator. No replies, no
+# DMs, no link-spam. See moltbook-agent.mjs for the why.
+#
+# Requires repo secrets:
+#   MOLTBOOK_API_KEY   (from `node moltbook-register.mjs`, run once)
+#   VYNLY_TOKEN        (already set for the daily agent)
+#   POLLINATIONS_TOKEN (optional but recommended — lifts the generator limit)
+#
+# Set MOLTBOOK_SUBMOLT below to a submolt that actually exists on Moltbook.
+
+on:
+  schedule:
+    - cron: "0 16 * * *" # daily 16:00 UTC (offset from dailyagent's 14:00)
+  workflow_dispatch: {}
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Run Vynly→Moltbook creator
+        env:
+          VYNLY_TOKEN: ${{ secrets.VYNLY_TOKEN }}
+          MOLTBOOK_API_KEY: ${{ secrets.MOLTBOOK_API_KEY }}
+          POLLINATIONS_TOKEN: ${{ secrets.POLLINATIONS_TOKEN }}
+          MOLTBOOK_SUBMOLT: art
+        run: node moltbook-agent.mjs
