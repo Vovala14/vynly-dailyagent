@@ -32,7 +32,7 @@ import { dirname, join } from "node:path";
 const BASE = process.env.VYNLY_BASE_URL ?? "https://vynly.co";
 const VYNLY_TOKEN = process.env.VYNLY_TOKEN ?? "DEMO";
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const POLLINATIONS_MCP = join(__dirname, "pollinations-mcp.mjs");
+const GEN_MCP = join(__dirname, "parascene-mcp.mjs");
 
 const FALLBACK_TAGS = [
   "cyberpunk",
@@ -94,10 +94,10 @@ Do all of this autonomously. Don't ask for confirmation.`,
       "image-gen": {
         type: "stdio",
         command: "node",
-        args: [POLLINATIONS_MCP],
-        // Pass the Pollinations API key through to the generator MCP.
-        env: process.env.POLLINATIONS_API_KEY
-          ? { POLLINATIONS_API_KEY: process.env.POLLINATIONS_API_KEY }
+        args: [GEN_MCP],
+        // Pass the Parascene key through to the generator MCP.
+        env: process.env.PARASCENE_API_KEY
+          ? { PARASCENE_API_KEY: process.env.PARASCENE_API_KEY }
           : {},
       },
       vynly: {

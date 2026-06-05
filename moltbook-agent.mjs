@@ -74,36 +74,64 @@ async function isClaimed() {
   }
 }
 
-// Pollinations rebuilt its API: new base is https://gen.pollinations.ai and
-// it requires an sk_ key via Bearer. We fetch the BYTES with the key in the
-// header (never in a URL) so the key can't leak into a public post or a log.
-const POLLINATIONS_KEY =
-  process.env.POLLINATIONS_API_KEY || process.env.POLLINATIONS_TOKEN || "";
+// Generation via Parascene (the engine Vynly's own /generate uses). We
+// create a job, poll until completed, then fetch the bytes — all with the
+// psn_ key in the Authorization header only (never in a URL/log/public post).
+const PARASCENE_KEY = process.env.PARASCENE_API_KEY || "";
+const PARASCENE_BASE = "https://api.parascene.com";
+const PARASCENE_MODEL = process.env.PARASCENE_MODEL || "xai/grok-imagine-image";
+const DECLARED_SOURCE = "grok"; // xai/grok-imagine-image
 
 async function generateImageBytes(prompt) {
-  if (!POLLINATIONS_KEY) {
-    throw new Error("POLLINATIONS_API_KEY not set");
-  }
-  const params = new URLSearchParams({
-    model: "flux",
-    width: "1024",
-    height: "1024",
-    seed: String(Math.floor(Math.random() * 1_000_000_000)),
+  if (!PARASCENE_KEY) throw new Error("PARASCENE_API_KEY not set");
+  const auth = { Authorization: `Bearer ${PARASCENE_KEY}` };
+
+  // 1. create the job
+  const cres = await fetch(`${PARASCENE_BASE}/api/create`, {
+    method: "POST",
+    headers: { ...auth, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      server_id: 1,
+      method: "replicate",
+      args: { model: PARASCENE_MODEL, prompt, input_images: [] },
+      creation_token: `crt_vynly_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
+      hydrate_mentions: true,
+    }),
+    signal: AbortSignal.timeout(60_000),
   });
-  const url = `https://gen.pollinations.ai/image/${encodeURIComponent(prompt)}?${params}`;
-  const res = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${POLLINATIONS_KEY}`,
-      "User-Agent": "vynly-moltbook-agent/1.0",
-    },
-    signal: AbortSignal.timeout(120_000),
-  });
-  const ctype = res.headers.get("content-type") || "";
-  if (!res.ok || !ctype.startsWith("image/")) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`generator failed: HTTP ${res.status} "${ctype}" ${body.slice(0, 160)}`);
+  if (!cres.ok) {
+    const b = await cres.text().catch(() => "");
+    throw new Error(`Parascene create failed: HTTP ${cres.status} ${b.slice(0, 160)}`);
   }
-  const bytes = Buffer.from(await res.arrayBuffer());
+  const id = (await cres.json())?.id;
+  if (!id) throw new Error("Parascene create returned no id");
+
+  // 2. poll until completed (typically ~10s)
+  let meta = null;
+  for (let i = 0; i < 40; i++) {
+    await new Promise((r) => setTimeout(r, 3000));
+    const pres = await fetch(`${PARASCENE_BASE}/api/create/images/${id}`, {
+      headers: auth,
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!pres.ok) continue;
+    const pj = await pres.json().catch(() => null);
+    if (!pj) continue;
+    if (pj.status === "completed") { meta = pj; break; }
+    if (pj.status === "failed") throw new Error("Parascene generation failed");
+  }
+  if (!meta || !meta.url) throw new Error("Parascene generation timed out");
+  // Keep the shared creator identity clean — skip NSFW results.
+  if (meta.nsfw) throw new Error("Parascene returned NSFW; skipping this run");
+
+  // 3. fetch the bytes (key in header; URL is on api.parascene.com)
+  const imgUrl = meta.url.startsWith("http") ? meta.url : `${PARASCENE_BASE}${meta.url}`;
+  const bres = await fetch(imgUrl, { headers: auth, signal: AbortSignal.timeout(60_000) });
+  const ctype = bres.headers.get("content-type") || "image/png";
+  if (!bres.ok || !ctype.startsWith("image/")) {
+    throw new Error(`Parascene image fetch failed: HTTP ${bres.status}`);
+  }
+  const bytes = Buffer.from(await bres.arrayBuffer());
   return { bytes, contentType: ctype };
 }
 
@@ -119,7 +147,7 @@ async function postToVynly(bytes, contentType, caption) {
   const fd = new FormData();
   fd.append("image", new Blob([bytes], { type: contentType }), `art.${ext}`);
   fd.append("caption", caption);
-  fd.append("declaredSource", "flux");
+  fd.append("declaredSource", DECLARED_SOURCE);
   const res = await fetch("https://vynly.co/api/posts", {
     method: "POST",
     headers: { Authorization: `Bearer ${VYNLY_TOKEN}` },
@@ -194,7 +222,7 @@ async function main() {
   // it), with the Vynly post link in the body for attribution.
   const mb = await postToMoltbook({
     title: caption,
-    content: `AI-generated (Flux). Verified AI provenance on Vynly: ${vynlyPostUrl}`,
+    content: `AI-generated (Grok Imagine). Verified AI provenance on Vynly: ${vynlyPostUrl}`,
     url: vynly.imageUrl,
   });
   console.log("Posted to Moltbook:", mb.id ?? mb.post?.id ?? JSON.stringify(mb).slice(0, 120));
