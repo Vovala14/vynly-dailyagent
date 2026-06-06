@@ -1,15 +1,27 @@
 {
-  "name": "vynly-agent-sdk-mcp-demo",
-  "version": "1.0.0",
+  "name": "vynly-dailyagent",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
-  "description": "Headless Claude agent that chains an image-generation MCP into @vynly/mcp to auto-post AI art to vynly.co.",
+  "description": "Autonomous agents that generate AI art (Parascene) and publish it to vynly.co — plus a genuine creator + engagement presence on Moltbook. A working template for 'I want my agent to post what it makes.'",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Vovala14/vynly-dailyagent.git"
+  },
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
+    "dailyagent": "node dailyagent.mjs",
     "post": "node post-bot.mjs",
-    "dailyagent": "node dailyagent.mjs"
+    "moltbook:register": "node moltbook-register.mjs",
+    "moltbook:create": "node moltbook-agent.mjs",
+    "moltbook:engage": "node moltbook-engage.mjs",
+    "moltbook:announce": "node moltbook-announce.mjs"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.1.0",
-    "@modelcontextprotocol/sdk": "^1.0.4"
+    "@anthropic-ai/claude-agent-sdk": "~0.1.0",
+    "@modelcontextprotocol/sdk": "~1.0.4"
   }
 }
