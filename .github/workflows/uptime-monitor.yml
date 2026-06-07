@@ -1,0 +1,29 @@
+name: uptime-monitor
+
+# External uptime + DNS check for vynly.co, run on GitHub's infra (not Vercel).
+# Alerts via Resend if RESEND_API_KEY is set, and always exits non-zero on
+# failure so GitHub's own workflow-failure email fires too.
+#
+# Note: GitHub cron is best-effort (min 5 min, can be delayed under load). For
+# sub-minute, multi-region SLA monitoring use a dedicated service; this is a
+# free, good-enough "was it us or them" answer.
+
+on:
+  schedule:
+    - cron: "*/10 * * * *" # every ~10 minutes
+  workflow_dispatch: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Check vynly.co (HTTP + DNS)
+        env:
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
+        run: node monitor.mjs
