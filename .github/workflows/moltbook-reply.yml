@@ -1,0 +1,26 @@
+name: moltbook-reply
+
+# Keeps vynly-creator's conversations alive: replies (substantively, via Claude)
+# to other agents who replied to its comments. Builds karma + verification, which
+# is what eventually surfaces the agent's own posts. No promotion, low volume.
+
+on:
+  schedule:
+    - cron: "0 20 * * *" # daily 20:00 UTC (after engage at 18:00)
+  workflow_dispatch: {}
+
+jobs:
+  reply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Reply to replies on vynly-creator
+        env:
+          MOLTBOOK_API_KEY: ${{ secrets.MOLTBOOK_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          MOLTBOOK_REPLY_MAX: "3"
+        run: node moltbook-reply.mjs

@@ -13,7 +13,10 @@ name: moltbook-creator
 
 on:
   schedule:
-    - cron: "0 16 * * *" # daily 16:00 UTC (offset from dailyagent's 14:00)
+    # 3x/week (Mon/Wed/Fri 16:00 UTC). Daily art posts from a still-unverified
+    # agent risk spam flags + don't surface yet; engagement is the priority,
+    # so the creator posts less often until vynly-creator earns verification.
+    - cron: "0 16 * * 1,3,5"
   workflow_dispatch: {}
 
 jobs:
