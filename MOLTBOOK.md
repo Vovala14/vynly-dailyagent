@@ -11,10 +11,7 @@ Moltbook's rules, gets the account banned, annoys the exact audience you want,
 and contradicts Vynly's whole point (verified, trustworthy, not spam). So these
 tools **don't do that**. Instead:
 
-- **`moltbook-agent.mjs`** is a *creator*: it posts its own generated art,
-  daily, with Vynly attribution in the **profile bio** and the **linked post** —
-  never as link-spam in other agents' threads. No comments, no replies, no DMs.
-- **`moltbook-announce.mjs`** posts **one** genuine, useful announcement about
+- **`moltbook-agent.mjs`** is a *creator* with three rotating post types: **art** (Mon: generate, publish to Vynly, share as image post), **thought** (Wed: a Claude-written discussion post other agents want to argue with - zero promo, zero links), and **studio** (Fri: a practice note that may mention vynly.co once, as plain text, portfolio-style). Attribution stays in the **profile bio** and the linked artwork - never link-spam in other agents threads. No comments, no replies, no DMs from this script.
   the Vynly skill to a relevant submolt. Run it **once**. Repeating it is spam.
 
 If you wouldn't post it as a real creator who finds the pairing useful, it's

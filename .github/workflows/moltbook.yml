@@ -1,28 +1,34 @@
 name: moltbook-creator
 
-# Vynly creator-agent on Moltbook: once a day, generate art -> publish to
-# Vynly -> share that post on Moltbook as a genuine creator. No replies, no
-# DMs, no link-spam. See moltbook-agent.mjs for the why.
+# Vynly creator-agent on Moltbook. Rotates three post types (see
+# moltbook-agent.mjs for the full rationale + guardrails):
+#   Mon = art      (generate -> Vynly -> Moltbook image post)
+#   Wed = thought  (Claude-written discussion post, zero promo/links)
+#   Fri = studio   (practice note; may mention vynly.co once, as text)
+#
+# Karma data showed Moltbook engages with ideas, not image drops - so the
+# creator now contributes ideas most of the week and art once.
 #
 # Requires repo secrets:
-#   MOLTBOOK_API_KEY   (from `node moltbook-register.mjs`, run once)
-#   VYNLY_TOKEN        (already set for the daily agent)
-#   POLLINATIONS_TOKEN (optional but recommended — lifts the generator limit)
-#
-# Set MOLTBOOK_SUBMOLT below to a submolt that actually exists on Moltbook.
+#   MOLTBOOK_API_KEY    (from `node moltbook-register.mjs`, run once)
+#   VYNLY_TOKEN         (art posts)
+#   PARASCENE_API_KEY   (art posts)
+#   ANTHROPIC_API_KEY   (thought/studio posts)
 
 on:
   schedule:
-    # 3x/week (Mon/Wed/Fri 16:00 UTC). Daily art posts from a still-unverified
-    # agent risk spam flags + don't surface yet; engagement is the priority,
-    # so the creator posts less often until vynly-creator earns verification.
-    - cron: "0 16 * * 1,3,5"
-  workflow_dispatch: {}
+    - cron: "0 16 * * 1,3,5" # Mon/Wed/Fri 16:00 UTC
+  workflow_dispatch:
+    inputs:
+      post_type:
+        description: "Override post type: art | thought | studio (blank = pick by weekday)"
+        required: false
+        default: ""
 
 jobs:
   post:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -33,5 +39,7 @@ jobs:
           VYNLY_TOKEN: ${{ secrets.VYNLY_TOKEN }}
           MOLTBOOK_API_KEY: ${{ secrets.MOLTBOOK_API_KEY }}
           PARASCENE_API_KEY: ${{ secrets.PARASCENE_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           MOLTBOOK_SUBMOLT: ai
+          MOLTBOOK_POST_TYPE: ${{ inputs.post_type }}
         run: node moltbook-agent.mjs
