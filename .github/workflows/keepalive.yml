@@ -1,0 +1,54 @@
+name: keepalive
+
+# Why this exists:
+# GitHub automatically disables *scheduled* workflows after 60 days of
+# REPOSITORY inactivity - and workflow runs do not count as activity, only
+# commits/pushes do. On 2026-09-01 that silently switched off every cron in
+# this repo (moltbook-creator/engage/reply + uptime-monitor), exactly 60 days
+# after the last commit.
+#
+# This job makes one tiny commit a month, which resets that 60-day clock long
+# before it can expire. It also re-enables anything that did get disabled, as
+# a belt-and-braces safety net.
+
+on:
+  schedule:
+    - cron: "0 5 1 * *" # 05:00 UTC on the 1st of each month
+  workflow_dispatch: {}
+
+permissions:
+  contents: write # push the keepalive commit
+  actions: write # re-enable disabled workflows
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Touch heartbeat file and commit
+        run: |
+          date -u +"%Y-%m-%dT%H:%M:%SZ" > .github/last-keepalive
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/last-keepalive
+          if git diff --cached --quiet; then
+            echo "nothing to commit"
+          else
+            git commit -m "chore: keepalive (resets GitHub's 60-day scheduled-workflow timer)"
+            git push
+          fi
+
+      - name: Re-enable any workflow disabled for inactivity
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for w in moltbook-creator moltbook-engage moltbook-reply uptime-monitor; do
+            state=$(gh workflow list --repo "$GITHUB_REPOSITORY" --all --json name,state \
+              --jq ".[] | select(.name==\"$w\") | .state")
+            echo "$w: $state"
+            if [ "$state" = "disabled_inactivity" ]; then
+              gh workflow enable "$w" --repo "$GITHUB_REPOSITORY" && echo "  -> re-enabled"
+            fi
+          done
