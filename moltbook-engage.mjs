@@ -155,6 +155,7 @@ async function main() {
   console.log(`[engage] ${candidates.length} candidate posts in feed`);
 
   let done = 0;
+  const apiErrors = [];
   for (const post of candidates) {
     if (done >= MAX) break;
     const id = post.id;
@@ -166,6 +167,7 @@ async function main() {
       comment = await writeComment(post);
     } catch (e) {
       console.log(`(skip "${(post.title || "").slice(0, 40)}": ${e.message})`);
+      apiErrors.push(e.message);
       continue;
     }
     if (!comment || comment === "SKIP" || comment.length < 12) {
@@ -188,6 +190,15 @@ async function main() {
     if (done < MAX) await sleep(60_000); // respect new-agent comment cooldown
   }
 
+  // A systemic API failure (expired key, no credit) must not masquerade as a
+  // quiet "nothing worth saying" run - that is how a dead agent stays green.
+  if (done === 0 && apiErrors.length > 0) {
+    const why = apiErrors[0].slice(0, 200);
+    console.log(
+      "::warning title=Engagement wrote nothing::All " + apiErrors.length +
+      " attempt(s) failed upstream, not because there was nothing to say. First error: " + why,
+    );
+  }
   console.log(`--- done: ${done} genuine comment(s) ---`);
 }
 

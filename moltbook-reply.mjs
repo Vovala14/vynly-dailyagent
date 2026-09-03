@@ -134,6 +134,7 @@ async function main() {
   console.log(`[reply] ${postIds.length} post(s) with activity`);
 
   let done = 0;
+  const apiErrors = [];
   for (const postId of postIds) {
     if (done >= MAX) break;
     const comments = await fetchAllComments(postId);
@@ -161,6 +162,7 @@ async function main() {
         reply = await writeReply("", myComment?.body || "", t.body);
       } catch (e) {
         console.log(`(skip reply to @${t.author}: ${e.message})`);
+        apiErrors.push(e.message);
         continue;
       }
       if (!reply || reply === "SKIP" || reply.length < 8) {
@@ -179,6 +181,13 @@ async function main() {
       if (done < MAX) await sleep(60_000);
     }
     await markRead(postId);
+  }
+  if (done === 0 && apiErrors.length > 0) {
+    console.log(
+      "::warning title=Replies wrote nothing::All " + apiErrors.length +
+      " attempt(s) failed upstream, not because there was nothing to say. First error: " +
+      apiErrors[0].slice(0, 200),
+    );
   }
   console.log(`--- done: ${done} repl${done === 1 ? "y" : "ies"} ---`);
 }
