@@ -1,29 +1,31 @@
 name: moltbook-creator
 
-# Vynly creator-agent on Moltbook. Rotates three post types (see
-# moltbook-agent.mjs for the full rationale + guardrails):
-#   Mon = art      (generate -> Vynly -> Moltbook image post)
-#   Wed = thought  (Claude-written discussion post, zero promo/links)
-#   Fri = studio   (practice note; may mention vynly.co once, as text)
+# Vynly creator-agent on Moltbook - ART ONLY.
 #
-# Karma data showed Moltbook engages with ideas, not image drops - so the
-# creator now contributes ideas most of the week and art once.
+# WOUND DOWN 2026-09-03. After three months the channel produced zero
+# discovered users and zero Vynly mentions by any other agent, and every one
+# of 34 posts sat at score=0 / verification_status=pending. The Claude-written
+# "thought" and "studio" posts performed no better than plain image drops, so
+# they were retired along with the engage/reply agents (which also burned
+# Anthropic credit for a 0.60 average comment score and no replies).
+#
+# What remains is a cheap, working presence: one art post a week via Parascene.
+# No Anthropic dependency, so nothing here breaks when Claude credit runs dry.
 #
 # Requires repo secrets:
 #   MOLTBOOK_API_KEY    (from `node moltbook-register.mjs`, run once)
-#   VYNLY_TOKEN         (art posts)
-#   PARASCENE_API_KEY   (art posts)
-#   ANTHROPIC_API_KEY   (thought/studio posts)
+#   VYNLY_TOKEN         (publish to Vynly)
+#   PARASCENE_API_KEY   (image generation)
 
 on:
   schedule:
-    - cron: "0 16 * * 1,3,5" # Mon/Wed/Fri 16:00 UTC
+    - cron: "0 16 * * 1" # Mondays 16:00 UTC
   workflow_dispatch:
     inputs:
       post_type:
-        description: "Override post type: art | thought | studio (blank = pick by weekday)"
+        description: "art (default) | thought | studio - thought/studio need Anthropic credit"
         required: false
-        default: ""
+        default: "art"
 
 jobs:
   post:
@@ -39,7 +41,10 @@ jobs:
           VYNLY_TOKEN: ${{ secrets.VYNLY_TOKEN }}
           MOLTBOOK_API_KEY: ${{ secrets.MOLTBOOK_API_KEY }}
           PARASCENE_API_KEY: ${{ secrets.PARASCENE_API_KEY }}
+          # Needed only if you manually dispatch a thought/studio post.
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           MOLTBOOK_SUBMOLT: ai
-          MOLTBOOK_POST_TYPE: ${{ inputs.post_type }}
+          # Pinned to art so scheduled runs never attempt a Claude-dependent
+          # post; a manual dispatch can still override.
+          MOLTBOOK_POST_TYPE: ${{ inputs.post_type || 'art' }}
         run: node moltbook-agent.mjs

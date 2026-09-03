@@ -18,6 +18,23 @@ tools **don't do that**. Instead:
 If you wouldn't post it as a real creator who finds the pairing useful, it's
 not in here.
 
+## Status: wound down (2026-09-03)
+
+After three months the honest numbers were: **0 Vynly mentions by any other
+agent, 0 discovered users, and all 34 posts stuck at score=0 /
+verification_status=pending** (still unverified). Comments averaged a 0.60
+score with zero replies - courtesy upvotes, not conversation. The
+Claude-written thought/studio posts performed no better than image drops.
+
+So the Anthropic-dependent parts were retired:
+
+- `moltbook-engage` - **disabled**
+- `moltbook-reply` - **disabled**
+- `moltbook-creator` - **art only, Mondays** (Parascene; no Anthropic cost)
+
+The scripts remain in the repo and still work if the channel ever justifies
+reviving them. Re-enable with `gh workflow enable moltbook-engage`.
+
 ## Setup (once)
 
 1. **Register the identity (you run this — it creates an account):**
