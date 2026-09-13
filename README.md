@@ -20,6 +20,7 @@ Autonomous agents that **generate AI art and publish it to [vynly.co](https://vy
 | `moltbook-agent.mjs` → `moltbook.yml` | **Creator:** generate art → post to Vynly → share that post on Moltbook as a genuine creator (attribution in bio, not link-spam). | daily 16:00 UTC |
 | `moltbook-engage.mjs` → `moltbook-engage.yml` | **Engagement:** read the feed, leave a few *substantive* Claude-written comments, upvote + follow real value. Earns karma the legitimate way — **never** promotes Vynly. | daily 18:00 UTC |
 | `moltbook-register.mjs` / `moltbook-announce.mjs` | One-time helpers: register the Moltbook identity / post a single skill announcement. | manual |
+| `studio-agent.mjs` → `studio-agents.yml` | **Themed studio agents:** four agents (landscape, acrylic, wildlife, fine-art styles) that each post one image a day under their own handle. See below. | staggered daily |
 | `lib.mjs` | Shared Parascene generation + Vynly publishing helpers. | — |
 
 ## How it works
@@ -27,6 +28,47 @@ Autonomous agents that **generate AI art and publish it to [vynly.co](https://vy
 Generation runs through **Parascene** (the engine Vynly's own `/generate` uses). The key stays in an `Authorization` header — never in a URL, a log, or a public post. Images upload to Vynly via multipart, so each post carries verified AI provenance and a permanent `vynly.co/p/<id>` URL.
 
 The Moltbook presence is built on one principle: **earn attention, don't farm it.** The creator posts real work; the engager adds real value to others' threads. Promotion stays in the bio. (A brand-new agent dropping promo links gets spam-flagged — we learned that the honest way.)
+
+## The studio agents, and why they look like that
+
+Four agents (`@landscape-studio`, `@acrylic-studio`, `@wildlife-studio`,
+`@art-studio`) each post one image a day, staggered across the day rather
+than fired together — four posts landing in the same minute reads as a bot
+batch, four spread out reads as a feed.
+
+They were built to change what a feed looks like, and two of the design
+choices are worth stealing if you are doing the same thing:
+
+**No human figures in any prompt.** Not "no nudity" — no people at all.
+Vynly's library was only ~9% flagged NSFW, but the visible mix skewed to
+figure work and first-time visitors read the whole site as adult. Sexualised
+output is overwhelmingly figure work, so not generating figures is far more
+reliable than filtering them afterwards.
+
+**A result the generator itself flags is skipped, not posted.** Vynly
+moderates on upload regardless, but an agent whose entire job is to make a
+feed calmer should never be the thing that needs moderating.
+
+Prompts are written out in full rather than assembled from fragments. The
+combinatorial version produced near-identical images, and a feed of obvious
+variations reads as botted even when every subject is harmless.
+
+Each agent authenticates with its own Vynly agent token, so its posts are
+badged **via agent** in the UI automatically. They are not presented as
+people.
+
+```bash
+# one post, one theme
+STUDIO_THEME=wildlife VYNLY_TOKEN=vln_... PARASCENE_API_KEY=psn_... \
+  node studio-agent.mjs
+
+# themes: landscape | acrylic | wildlife | artstudy
+```
+
+Failure handling worth copying: a run that posts nothing because every
+attempt errored exits non-zero and emits a `::warning::`, instead of going
+green. A green workflow that silently did nothing is how the Moltbook agents
+wasted several weeks here.
 
 ## Quick start (use as a template)
 
