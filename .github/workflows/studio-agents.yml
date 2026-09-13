@@ -1,0 +1,90 @@
+name: studio-agents
+
+# Four themed agents that post one image a day each to Vynly: landscape,
+# acrylic painting, wildlife, and fine-art styles.
+#
+# They exist to change what the feed looks like. The library was only ~9%
+# flagged NSFW, but the visible mix skewed to figure work, which is what made
+# first-time visitors read the site as adult. None of these prompts contain a
+# human figure, and any result the generator itself marks nsfw is skipped.
+#
+# Staggered through the day rather than fired together: four posts landing in
+# the same minute reads as a bot batch, four spread across the day reads as a
+# feed. Each runs on its own schedule so one failing theme cannot block the
+# others.
+#
+# Requires repo secrets:
+#   PARASCENE_API_KEY        image generation
+#   VYNLY_TOKEN_LANDSCAPE    one agent token per theme, each posting under
+#   VYNLY_TOKEN_ACRYLIC      its own handle (@landscape-studio, etc). Posts
+#   VYNLY_TOKEN_WILDLIFE     authenticate as agents, so Vynly badges them
+#   VYNLY_TOKEN_ARTSTUDY     "via agent" automatically.
+
+on:
+  schedule:
+    - cron: "10 7 * * *" # landscape, 07:10 UTC
+    - cron: "40 11 * * *" # acrylic,   11:40 UTC
+    - cron: "20 16 * * *" # wildlife,  16:20 UTC
+    - cron: "50 19 * * *" # artstudy,  19:50 UTC
+  workflow_dispatch:
+    inputs:
+      theme:
+        description: "landscape | acrylic | wildlife | artstudy | all"
+        required: false
+        default: "all"
+      count:
+        description: "posts per theme (1-3)"
+        required: false
+        default: "1"
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # Map the firing cron to its theme. On a manual dispatch, honour the
+      # chosen theme (default "all", which runs every one in sequence).
+      - name: Resolve theme
+        id: pick
+        run: |
+          case "${{ github.event.schedule }}" in
+            "10 7 * * *")  echo "theme=landscape" >> "$GITHUB_OUTPUT" ;;
+            "40 11 * * *") echo "theme=acrylic"   >> "$GITHUB_OUTPUT" ;;
+            "20 16 * * *") echo "theme=wildlife"  >> "$GITHUB_OUTPUT" ;;
+            "50 19 * * *") echo "theme=artstudy"  >> "$GITHUB_OUTPUT" ;;
+            *)             echo "theme=${{ github.event.inputs.theme || 'all' }}" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - name: Post
+        env:
+          PARASCENE_API_KEY: ${{ secrets.PARASCENE_API_KEY }}
+          STUDIO_COUNT: ${{ github.event.inputs.count || '1' }}
+          TOK_landscape: ${{ secrets.VYNLY_TOKEN_LANDSCAPE }}
+          TOK_acrylic: ${{ secrets.VYNLY_TOKEN_ACRYLIC }}
+          TOK_wildlife: ${{ secrets.VYNLY_TOKEN_WILDLIFE }}
+          TOK_artstudy: ${{ secrets.VYNLY_TOKEN_ARTSTUDY }}
+        run: |
+          set -u
+          THEME="${{ steps.pick.outputs.theme }}"
+          if [ "$THEME" = "all" ]; then
+            THEMES="landscape acrylic wildlife artstudy"
+          else
+            THEMES="$THEME"
+          fi
+          FAILED=0
+          for t in $THEMES; do
+            eval "TOKEN=\${TOK_$t}"
+            if [ -z "$TOKEN" ]; then
+              echo "::warning::no token for $t, skipping"
+              continue
+            fi
+            echo "--- $t ---"
+            # One theme failing must not stop the rest on an "all" run.
+            STUDIO_THEME="$t" VYNLY_TOKEN="$TOKEN" node studio-agent.mjs || FAILED=1
+          done
+          exit $FAILED

@@ -85,11 +85,16 @@ export function extForContentType(contentType) {
 export async function postImageToVynly(bytes, contentType, caption, {
   token = process.env.VYNLY_TOKEN || "DEMO",
   declaredSource = "grok",
+  tags = "",
 } = {}) {
   const fd = new FormData();
   fd.append("image", new Blob([bytes], { type: contentType }), `art.${extForContentType(contentType)}`);
   if (caption) fd.append("caption", caption);
   if (declaredSource) fd.append("declaredSource", declaredSource);
+  // Explicit tags merge with any #hashtags parsed out of the caption.
+  // Passing them separately means a caption can stay readable prose while
+  // the post still lands on the right tag pages.
+  if (tags) fd.append("tags", tags);
   const res = await fetch(`${VYNLY_BASE}/api/posts`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
