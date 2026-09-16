@@ -42,6 +42,7 @@
  *   DRY_RUN=1            generate everything but skip the Moltbook post
  */
 import { generateParasceneImage, postImageToVynly, vynlyPostUrl } from "./lib.mjs";
+import { solveAndSubmit } from "./moltbook-verify.mjs";
 
 const MOLTBOOK_API_KEY = process.env.MOLTBOOK_API_KEY || "";
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
@@ -151,7 +152,32 @@ async function postToMoltbook({ submolt, title, content, url, type }) {
         (res.status === 404 ? ` (is submolt "${submolt}" valid?)` : ""),
     );
   }
-  return JSON.parse(text);
+  const created = JSON.parse(text);
+
+  // A 200 here does NOT mean the post is live. Moltbook returns the post with
+  // verification_status "pending" plus an obfuscated math challenge, and only
+  // publishes once the answer is posted back to /api/v1/verify. There is no
+  // error and no warning if you skip it.
+  //
+  // We skipped it for three and a half months. All 37 posts sat at "pending",
+  // so nothing this agent ever wrote was visible to anyone, and the channel
+  // got written off as producing no engagement. Deadline is 5 minutes, so
+  // solve it right here rather than in a later pass.
+  const verification = created?.post?.verification ?? created?.verification;
+  if (verification) {
+    const v = await solveAndSubmit(verification, { apiKey: MOLTBOOK_API_KEY });
+    if (v.ok) {
+      console.log(`Verification passed (${v.detail}) - post is published`);
+    } else {
+      // Loud, because a silent failure here is indistinguishable from success
+      // and that is exactly how this went unnoticed for months.
+      console.log(`::warning::Post created but NOT published - ${v.detail}`);
+    }
+    created.verificationResult = v;
+  } else if (created?.post?.verification_status === "pending") {
+    console.log("::warning::Post is pending but no verification challenge was returned");
+  }
+  return created;
 }
 
 // ---- Claude writing ----------------------------------------------------------
