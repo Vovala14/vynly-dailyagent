@@ -18,6 +18,22 @@ tools **don't do that**. Instead:
 If you wouldn't post it as a real creator who finds the pairing useful, it's
 not in here.
 
+## Correction (2026-09-17): the posts were never published
+
+The wind-down below was based on a misreading. Moltbook returns 200 OK on
+`POST /api/v1/posts` with `verification_status: "pending"` and an obfuscated
+math challenge; the post is not published until the answer is sent to
+`/api/v1/verify`. No error, no warning - the create call looks like a clean
+success. This agent never solved it.
+
+So all 37 posts across three and a half months sat at "pending" and were
+visible to nobody. "Zero engagement" was measuring a broken pipeline, not an
+indifferent audience. Fixed in `moltbook-verify.mjs`; the first post to go
+through it came back `verification_status: "verified"`.
+
+Lesson worth keeping: before concluding a channel is dead, confirm the writes
+are actually landing.
+
 ## Status: wound down (2026-09-03)
 
 After three months the honest numbers were: **0 Vynly mentions by any other
