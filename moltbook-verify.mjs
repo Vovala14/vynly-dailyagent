@@ -176,10 +176,75 @@ export function extractOperation(clean) {
  * @returns {{ok:true, answer:string, a:number, b:number, op:string, clean:string}
  *          | {ok:false, reason:string, clean:string}}
  */
+/**
+ * Fallback parse that ignores word boundaries completely.
+ *
+ * The obfuscator also shatters words with inserted spaces - "twen ty two",
+ * "sev en" - which no token-based reader can see. So collapse the doubling,
+ * strip every space, and scan the resulting character stream for number words
+ * and operation phrases, longest match first.
+ *
+ * Adjacent matches with no gap between them are one number ("twentytwo" is 22,
+ * not 20 and 2); a gap means a new one. Scanning a space-free stream can of
+ * course match a number word buried inside an ordinary word, which is exactly
+ * why the caller still refuses anything that does not come out to exactly two
+ * numbers.
+ */
+function scanStream(clean) {
+  const stream = collapseText(clean).replace(/\s+/g, "");
+  const numWords = [...COLLAPSED.entries()].sort((a, b) => b[0].length - a[0].length);
+  const opWords = [];
+  for (const [op, phrases] of OP_PHRASES) {
+    for (const p of phrases) opWords.push([collapseText(p).replace(/\s+/g, ""), op]);
+  }
+  opWords.sort((a, b) => b[0].length - a[0].length);
+
+  const nums = [];
+  let op = null;
+  let current = null;
+  let lastEnd = -1;
+
+  for (let i = 0; i < stream.length; ) {
+    if (!op) {
+      const hit = opWords.find(([w]) => stream.startsWith(w, i));
+      if (hit) {
+        op = hit[1];
+        // An operation phrase ends whatever number was being accumulated.
+        if (current !== null) { nums.push(current); current = null; }
+        i += hit[0].length;
+        lastEnd = i;
+        continue;
+      }
+    }
+    const numHit = numWords.find(([w]) => stream.startsWith(w, i));
+    if (numHit) {
+      const [word, value] = numHit;
+      if (current !== null && i === lastEnd) current += value;
+      else { if (current !== null) nums.push(current); current = value; }
+      i += word.length;
+      lastEnd = i;
+      continue;
+    }
+    i++;
+  }
+  if (current !== null) nums.push(current);
+  return { nums, op };
+}
+
 export function solveChallenge(challengeText) {
   const clean = deobfuscate(challengeText);
-  const nums = extractNumbers(clean);
-  const op = extractOperation(clean);
+  let nums = extractNumbers(clean);
+  let op = extractOperation(clean);
+
+  // Word-boundary parsing is the safer read, so it goes first. Only reach for
+  // the boundary-free scan when it comes up short.
+  if (nums.length !== 2 || !op) {
+    const scanned = scanStream(clean);
+    if (scanned.nums.length === 2 && scanned.op) {
+      nums = scanned.nums;
+      op = scanned.op;
+    }
+  }
 
   if (nums.length < 2) {
     return { ok: false, reason: `found ${nums.length} number(s), need 2`, clean };
@@ -252,6 +317,8 @@ if (import.meta.url === `file://${process.argv[1]}`.replace(/\\/g, "/") ||
     // operation phrase only matches once the whole sentence is collapsed.
     ["a loooobbssstteerr cllaaww exxeerrtts twweennttyy thhrree neeuutoonns umm duurriinng ggdoommiinnaannccee fiigghhtt itt mmuullttiipplliieess byy fooouurr whhaatt iss toottaallffoorrccee", "92.00"],
     ["ThE sHr^ImP sPe[eDs uP bY^ eLeVeN fRoM tHiRtY", "41.00"],
+    // Second real challenge: words shattered by inserted spaces.
+    ["a lo bsterr looobsssster cla wfor ce is twen ty two um nootons and its oth er claw adds sev en um nootons wha tis total for ce", "29.00"],
     ["a lobster swims at eighteen meters", null], // one number -> refuse
   ];
   let pass = 0;
