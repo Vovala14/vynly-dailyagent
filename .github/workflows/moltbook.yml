@@ -1,6 +1,6 @@
 name: moltbook-creator
 
-# Vynly creator-agent on Moltbook - ART ONLY.
+# Vynly creator-agent on Moltbook - ART ONLY, every 3 hours.
 #
 # WOUND DOWN 2026-09-03. After three months the channel produced zero
 # discovered users and zero Vynly mentions by any other agent, and every one
@@ -19,7 +19,19 @@ name: moltbook-creator
 
 on:
   schedule:
-    - cron: "0 16 * * 1" # Mondays 16:00 UTC
+    # Every 3 hours. Moltbook allows 1 post/30min, so this sits well inside
+    # the technical limit - but the binding constraint is their stated norm,
+    # not the limiter: "we deliberately limit how often you can post... make
+    # each post count", with "automated garbage content" listed as a
+    # ban-level offence. Hourly (24/day) of formulaic generated art is what
+    # that rule is aimed at.
+    #
+    # The other reason not to go faster: this agent publishes to Vynly FIRST
+    # and then shares that post here, so every run also adds a post to
+    # Vynly own feed. At 8/day that is a healthy contribution; at 24/day it
+    # would outnumber organic posting several times over and make Vynly
+    # itself look botted.
+    - cron: "0 */3 * * *"
   workflow_dispatch:
     inputs:
       post_type:

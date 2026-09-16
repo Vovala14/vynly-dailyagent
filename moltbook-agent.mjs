@@ -134,7 +134,7 @@ async function postToMoltbook({ submolt, title, content, url, type }) {
     console.log(`DRY_RUN: would post [${type}] to m/${submolt}: "${title}"\n---\n${(content || "").slice(0, 500)}\n---`);
     return { id: "(dry-run)" };
   }
-  const res = await fetch(`${BASE}/api/v1/posts`, {
+  let res = await fetch(`${BASE}/api/v1/posts`, {
     method: "POST",
     headers: { ...auth, "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -145,7 +145,46 @@ async function postToMoltbook({ submolt, title, content, url, type }) {
       type,
     }),
   });
-  const text = await res.text();
+  let text = await res.text();
+
+  // 429 is backpressure, not a bug. Moltbook allows 1 post per 30 minutes and
+  // tells us exactly how long to wait, so honour it once rather than failing
+  // the run - a delayed scheduled trigger landing near the previous one is
+  // ordinary, and a red workflow for that trains you to ignore red workflows.
+  if (res.status === 429) {
+    let waitSec = 0;
+    try {
+      const body = JSON.parse(text);
+      waitSec = Number(body.retry_after_seconds ?? body.retry_after_minutes * 60 ?? 0) || 0;
+    } catch {
+      waitSec = Number(res.headers.get("retry-after") ?? 0) || 0;
+    }
+    if (waitSec > 0 && waitSec <= 180) {
+      console.log(`Rate limited; waiting ${waitSec}s and retrying once.`);
+      await new Promise((r) => setTimeout(r, (waitSec + 3) * 1000));
+      res = await fetch(`${BASE}/api/v1/posts`, {
+        method: "POST",
+        headers: { ...auth, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          submolt_name: submolt,
+          title: title.slice(0, 300),
+          content,
+          ...(url ? { url } : {}),
+          type,
+        }),
+      });
+      text = await res.text();
+    }
+    if (res.status === 429) {
+      // Visible, but not a failure. The Vynly post already exists; only the
+      // Moltbook share was skipped.
+      console.log(
+        `::warning::Moltbook rate limit still active, skipping this share. ${text.slice(0, 160)}`,
+      );
+      return { skipped: true };
+    }
+  }
+
   if (!res.ok) {
     throw new Error(
       `Moltbook post failed: HTTP ${res.status} ${text.slice(0, 300)}` +
@@ -153,6 +192,7 @@ async function postToMoltbook({ submolt, title, content, url, type }) {
     );
   }
   const created = JSON.parse(text);
+  if (created?.skipped) return created;
 
   // A 200 here does NOT mean the post is live. Moltbook returns the post with
   // verification_status "pending" plus an obfuscated math challenge, and only
@@ -278,7 +318,11 @@ async function main() {
       url: vynly.imageUrl,
       type: "image",
     });
-    console.log("Posted to Moltbook:", mb.id ?? mb.post?.id ?? "(ok)");
+    console.log(
+      mb?.skipped
+        ? "Moltbook share skipped (rate limited); the Vynly post stands on its own."
+        : `Posted to Moltbook: ${mb.id ?? mb.post?.id ?? "(ok)"}`,
+    );
     console.log("--- done ---");
     return;
   }
@@ -302,7 +346,11 @@ async function main() {
 
   console.log(`[${TYPE}] m/${submolt} "${piece.title}"`);
   const mb = await postToMoltbook({ submolt, title: piece.title, content: piece.body, type: "text" });
-  console.log("Posted to Moltbook:", mb.id ?? mb.post?.id ?? "(ok)");
+  console.log(
+      mb?.skipped
+        ? "Moltbook share skipped (rate limited); the Vynly post stands on its own."
+        : `Posted to Moltbook: ${mb.id ?? mb.post?.id ?? "(ok)"}`,
+    );
   console.log("--- done ---");
 }
 
