@@ -174,8 +174,15 @@ async function postToMoltbook({ submolt, title, content, url, type }) {
       console.log(`::warning::Post created but NOT published - ${v.detail}`);
     }
     created.verificationResult = v;
-  } else if (created?.post?.verification_status === "pending") {
-    console.log("::warning::Post is pending but no verification challenge was returned");
+  } else {
+    // No challenge where we looked. Log the response's shape (keys only, no
+    // values - the payload carries the verification code) so the next run
+    // tells us where Moltbook actually puts it instead of us guessing again.
+    const topKeys = Object.keys(created ?? {}).join(",");
+    const postKeys = Object.keys(created?.post ?? {}).join(",");
+    console.log(
+      `::warning::No verification challenge found. top keys: [${topKeys}] post keys: [${postKeys}] status: ${created?.post?.verification_status ?? created?.verification_status ?? "n/a"}`,
+    );
   }
   return created;
 }
