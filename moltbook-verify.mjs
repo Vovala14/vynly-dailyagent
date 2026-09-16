@@ -137,15 +137,37 @@ export function extractNumbers(clean) {
  * by half" is a division, not a subtraction, so the divide patterns are
  * tested before the generic decrease ones.
  */
-const OPS = [
-  [/\bdivided?\s+by\b|\bsplits?\s+(in|into)\b|\bper\b|\bshared?\s+(by|among)\b/, "/"],
-  [/\bmultiplied?\s+by\b|\btimes\b|\bscaled?\s+by\b/, "*"],
-  [/\bslows?\s+by\b|\bdecreas\w*\s+by\b|\bdrops?\s+by\b|\bloses\b|\bminus\b|\bless\b|\breduc\w*\s+by\b|\bsubtracts?\b/, "-"],
-  [/\bspeeds?\s+up\s+by\b|\bincreas\w*\s+by\b|\bgains\b|\bplus\b|\badds?\b|\bmore\b|\bfaster\s+by\b|\brises?\s+by\b/, "+"],
+const OP_PHRASES = [
+  ["/", ["divided by", "divide by", "divides by", "split into", "split in", "shared by", "shared among", "halved"]],
+  ["*", ["multiplied by", "multiplies by", "multiply by", "times", "scaled by", "scales by", "doubled by"]],
+  ["-", ["slows by", "slowed by", "slowing by", "decreases by", "decreased by", "drops by", "dropped by", "loses", "lost", "minus", "less", "reduced by", "reduces by", "subtracts", "subtracted by", "falls by"]],
+  ["+", ["speeds up by", "speeding up by", "increases by", "increased by", "gains", "gained", "plus", "adds", "added", "faster by", "rises by", "rose by", "accelerates by"]],
 ];
 
+/** Collapse repeated characters across a whole string, spaces included. */
+function collapseText(t) {
+  return t.replace(/(.)\1+/g, "$1");
+}
+
+/**
+ * Detect the operation.
+ *
+ * Matched against the COLLAPSED sentence, with the phrases collapsed the same
+ * way, because the obfuscator doubles letters throughout: "mmuullttiipplliieess
+ * byy" is "multiplies by". The first version ran these patterns against the
+ * merely de-punctuated text and matched nothing on a real challenge - the
+ * solver refused, which was the right failure, but for an avoidable reason.
+ *
+ * Collapsing both sides also means a phrase like "speeds up by" is compared as
+ * "speds up by", so the pattern list does not need doubled variants spelled out.
+ */
 export function extractOperation(clean) {
-  for (const [re, op] of OPS) if (re.test(clean)) return op;
+  const c = collapseText(clean);
+  for (const [op, phrases] of OP_PHRASES) {
+    for (const p of phrases) {
+      if (c.includes(collapseText(p))) return op;
+    }
+  }
   return null;
 }
 
@@ -226,6 +248,10 @@ if (import.meta.url === `file://${process.argv[1]}`.replace(/\\/g, "/") ||
     ["the shrimp travels at twelve and loses three", "9.00"],
     ["a crab at one hundred and five minus five", "100.00"],
     ["A] lObStEr aT/ tW]eNtY-fI^vE sPe[eDs uP bY^ sE-vEn-tY", "95.00"],
+    // The real challenge that defeated v1: doubled letters throughout, so the
+    // operation phrase only matches once the whole sentence is collapsed.
+    ["a loooobbssstteerr cllaaww exxeerrtts twweennttyy thhrree neeuutoonns umm duurriinng ggdoommiinnaannccee fiigghhtt itt mmuullttiipplliieess byy fooouurr whhaatt iss toottaallffoorrccee", "92.00"],
+    ["ThE sHr^ImP sPe[eDs uP bY^ eLeVeN fRoM tHiRtY", "41.00"],
     ["a lobster swims at eighteen meters", null], // one number -> refuse
   ];
   let pass = 0;
