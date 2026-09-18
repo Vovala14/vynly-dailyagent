@@ -161,11 +161,83 @@ function collapseText(t) {
  * Collapsing both sides also means a phrase like "speeds up by" is compared as
  * "speds up by", so the pattern list does not need doubled variants spelled out.
  */
+/**
+ * Verb stems that take an object before "by": "reducing velocity by seven",
+ * "slows its speed by five". Matching contiguous phrases missed all of these -
+ * the object sits between the verb and the preposition. Stem plus a short
+ * window is what actually reads these sentences.
+ */
+const OP_STEMS = [
+  ["/", ["divid", "split", "halv"]],
+  ["*", ["multipl", "scal"]],
+  ["-", ["reduc", "slow", "decreas", "drop", "subtract", "fall", "lower", "los"]],
+  ["+", ["increas", "gain", "ad", "ris", "accelerat", "boost", "speed"]],
+];
+
+/** Words that carry the operation on their own, no "by" required. */
+const OP_BARE = [
+  ["*", ["times"]],
+  ["-", ["minus", "less"]],
+  ["+", ["plus", "more"]],
+];
+
+/** Character index of the earliest number word in a collapsed sentence, or -1. */
+function firstNumberIndex(collapsed) {
+  let best = -1;
+  for (const w of COLLAPSED.keys()) {
+    const i = collapsed.search(new RegExp(`\\b${w}`));
+    if (i >= 0 && (best < 0 || i < best)) best = i;
+  }
+  return best;
+}
+
+/** Character index of the earliest operation keyword, or -1. */
+function operationIndex(collapsed) {
+  let best = -1;
+  const consider = (i) => {
+    if (i >= 0 && (best < 0 || i < best)) best = i;
+  };
+  for (const [, phrases] of OP_PHRASES) {
+    for (const p of phrases) consider(collapsed.indexOf(collapseText(p)));
+  }
+  for (const [, stems] of OP_STEMS) {
+    for (const st of stems) {
+      consider(
+        collapsed.search(
+          new RegExp(`\\b${collapseText(st)}\\w*\\b(?:\\s+\\S+){0,4}\\s+(?:by|into)\\b`),
+        ),
+      );
+    }
+  }
+  for (const [, words] of OP_BARE) {
+    for (const w of words) consider(collapsed.search(new RegExp(`\\b${collapseText(w)}\\b`)));
+  }
+  return best;
+}
+
 export function extractOperation(clean) {
   const c = collapseText(clean);
+
+  // Contiguous phrases first - the most specific and least ambiguous read.
   for (const [op, phrases] of OP_PHRASES) {
     for (const p of phrases) {
       if (c.includes(collapseText(p))) return op;
+    }
+  }
+
+  // Then stem + up to four intervening words + "by" (or "into" for splitting).
+  for (const [op, stems] of OP_STEMS) {
+    for (const stem of stems) {
+      const re = new RegExp(
+        `\\b${collapseText(stem)}\\w*\\b(?:\\s+\\S+){0,4}\\s+(?:by|into)\\b`,
+      );
+      if (re.test(c)) return op;
+    }
+  }
+
+  for (const [op, words] of OP_BARE) {
+    for (const w of words) {
+      if (new RegExp(`\\b${collapseText(w)}\\b`).test(c)) return op;
     }
   }
   return null;
@@ -260,6 +332,27 @@ export function solveChallenge(challengeText) {
   const [a, b] = nums;
   if (op === "/" && b === 0) return { ok: false, reason: "division by zero", clean };
 
+  // Operand order matters for - and /, and we take it from the text. Every
+  // real challenge so far reads "base ... operation ... delta" ("swims at
+  // twenty and slows by five"), where that is correct. But a sentence can put
+  // the delta first - "lowers its speed by eight from forty" means 40 - 8, not
+  // 8 - 40 - and there is no way to tell from position alone.
+  //
+  // So when the operation appears before the first number in a non-commutative
+  // problem, refuse. + and * are unaffected because order cannot change them.
+  if (op === "-" || op === "/") {
+    const c = collapseText(clean);
+    const firstNumAt = firstNumberIndex(c);
+    const opAt = operationIndex(c);
+    if (opAt >= 0 && firstNumAt >= 0 && opAt < firstNumAt) {
+      return {
+        ok: false,
+        reason: `operation precedes both numbers, operand order ambiguous for "${op}"`,
+        clean,
+      };
+    }
+  }
+
   const value = op === "+" ? a + b : op === "-" ? a - b : op === "*" ? a * b : a / b;
   return { ok: true, answer: value.toFixed(2), a, b, op, clean };
 }
@@ -319,6 +412,12 @@ if (import.meta.url === `file://${process.argv[1]}`.replace(/\\/g, "/") ||
     ["ThE sHr^ImP sPe[eDs uP bY^ eLeVeN fRoM tHiRtY", "41.00"],
     // Second real challenge: words shattered by inserted spaces.
     ["a lo bsterr looobsssster cla wfor ce is twen ty two um nootons and its oth er claw adds sev en um nootons wha tis total for ce", "29.00"],
+    // Third real challenge: the object sits between the verb and "by",
+    // and "meters per second" must NOT be read as a division.
+    ["a lob ster swims at twenty three meters per second but another lob ster tap sclaws reducing velo ocityy by seven meters per second so what is the new velocity", "16.00"],
+    // Delta stated before the base: operand order is not recoverable from
+    // position, so refuse rather than answer 8 - 40.
+    ["the crab lowers its speed by eight from forty", null],
     ["a lobster swims at eighteen meters", null], // one number -> refuse
   ];
   let pass = 0;
